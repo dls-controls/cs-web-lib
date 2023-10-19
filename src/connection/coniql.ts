@@ -1,18 +1,6 @@
 /* Module that handles a GraphQL connection to the Coniql server.
    See https://github.com/dls-controls/coniql
  */
-import log from "loglevel";
-import base64js from "base64-js";
-import { ApolloClient, ApolloLink, from } from "@apollo/client";
-import { RetryLink } from "apollo-link-retry";
-import { HttpLink } from "@apollo/client/link/http";
-import { onError } from "@apollo/client/link/error";
-import { InMemoryCache, NormalizedCacheObject } from "@apollo/client/cache";
-import {
-  ObservableSubscription,
-  getMainDefinition
-} from "@apollo/client/utilities";
-import { gql } from "graphql-tag";
 import {
   Connection,
   ConnectionChangedCallback,
@@ -20,81 +8,25 @@ import {
   nullConnCallback,
   nullValueCallback,
   SubscriptionType,
-  DeviceQueriedCallback,
-  nullDeviceCallback
+  DeviceQueriedCallback
 } from "./plugin";
-import { Client, createClient } from "graphql-ws";
-import { GraphQLWsLink } from "@apollo/client/link/subscriptions";
+
 import {
   DType,
   DTime,
   DAlarm,
   AlarmQuality,
   DDisplay,
-  DRange,
-  ChannelRole,
-  DisplayForm
+  DRange
 } from "../types/dtypes";
 
-const PERFORMANCE_DEBUG = process.env.REACT_APP_PERFORMANCE_DEBUG === "true";
+//const PERFORMANCE_DEBUG = process.env.REACT_APP_PERFORMANCE_DEBUG === "true";
 
 export interface ConiqlStatus {
   quality: "ALARM" | "WARNING" | "VALID" | "INVALID" | "UNDEFINED" | "CHANGING";
   message: string;
   mutable: boolean;
 }
-
-const QUALITY_TYPES = {
-  VALID: AlarmQuality.VALID,
-  ALARM: AlarmQuality.ALARM,
-  WARNING: AlarmQuality.WARNING,
-  INVALID: AlarmQuality.INVALID,
-  UNDEFINED: AlarmQuality.UNDEFINED,
-  CHANGING: AlarmQuality.CHANGING
-};
-
-interface ConiqlRange {
-  min: number;
-  max: number;
-}
-
-interface ConiqlDisplay {
-  description: string;
-  role: "RW" | "WO" | "RO";
-  controlRange: ConiqlRange;
-  displayRange: ConiqlRange;
-  warningRange: ConiqlRange;
-  alarmRange: ConiqlRange;
-  units: string;
-  precision: number;
-  form: FORM;
-  choices: string[];
-}
-
-const ROLES = {
-  RW: ChannelRole.RW,
-  RO: ChannelRole.RO,
-  WO: ChannelRole.WO
-};
-
-type FORM =
-  | "DEFAULT"
-  | "STRING"
-  | "BINARY"
-  | "DECIMAL"
-  | "HEX"
-  | "EXPONENTIAL"
-  | "ENGINEERING";
-
-const FORMS = {
-  DEFAULT: DisplayForm.DEFAULT,
-  STRING: DisplayForm.STRING,
-  BINARY: DisplayForm.BINARY,
-  DECIMAL: DisplayForm.DECIMAL,
-  HEX: DisplayForm.HEX,
-  EXPONENTIAL: DisplayForm.EXPONENTIAL,
-  ENGINEERING: DisplayForm.ENGINEERING
-};
 
 type CONIQL_TYPE =
   | "INT8"
@@ -108,80 +40,52 @@ type CONIQL_TYPE =
   | "FLOAT32"
   | "FLOAT64";
 
-const ARRAY_TYPES = {
-  INT8: Int8Array,
-  UINT8: Uint8Array,
-  INT16: Int16Array,
-  UINT16: Uint16Array,
-  INT32: Int32Array,
-  UINT32: Uint32Array,
-  INT64: BigInt64Array,
-  UINT64: BigUint64Array,
-  FLOAT32: Float32Array,
-  FLOAT64: Float64Array
-};
-
 export interface ConiqlBase64Array {
   numberType: CONIQL_TYPE;
   base64: string;
-}
-
-interface ConiqlValue {
-  string: string;
-  float: number;
-  base64Array: ConiqlBase64Array;
-  stringArray: string[];
 }
 
 export interface ConiqlTime {
   datetime: Date;
 }
 
-function coniqlToDType(
-  value: ConiqlValue,
-  timeVal: ConiqlTime,
-  status: ConiqlStatus,
-  display: ConiqlDisplay
-): DType {
+function coniqlToDType(data: any): DType {
   let alarm = undefined;
   let ddisplay = undefined;
-  if (status) {
-    alarm = new DAlarm(QUALITY_TYPES[status.quality], status.message);
+  const array = undefined;
+  if (data.severity !== undefined) {
+    if (data.severity === "MAJOR") {
+      alarm = new DAlarm(AlarmQuality.ALARM, "");
+    } else if (data.severity === "MINOR") {
+      alarm = new DAlarm(AlarmQuality.WARNING, "");
+    } else {
+      alarm = new DAlarm(AlarmQuality.VALID, "");
+    }
   }
-  if (display) {
-    ddisplay = new DDisplay({
-      description: display.description,
-      role: display.role ? ROLES[display.role] : undefined,
-      controlRange: display.controlRange
-        ? new DRange(display.controlRange.min, display.controlRange.max)
-        : undefined,
-      alarmRange: display.alarmRange
-        ? new DRange(display.alarmRange.min, display.alarmRange.max)
-        : undefined,
-      warningRange: display.warningRange
-        ? new DRange(display.warningRange.min, display.warningRange.max)
-        : undefined,
-      units: display.units,
-      precision: display.precision,
-      form: display.form ? FORMS[display.form] : undefined,
-      choices: display.choices
-    });
-  }
-  let array = undefined;
-  if (value?.base64Array) {
-    const bd = base64js.toByteArray(value.base64Array.base64);
-    array = new ARRAY_TYPES[value.base64Array.numberType as CONIQL_TYPE](
-      bd.buffer
-    );
-  }
-  let dtime = undefined;
-  if (timeVal?.datetime) {
-    dtime = new DTime(timeVal.datetime);
-  }
+  ddisplay = new DDisplay({
+    description: "",
+    role: undefined,
+    controlRange: undefined,
+    alarmRange: data.alarm_low
+      ? new DRange(data.alarm_low, data.alarm_high)
+      : undefined,
+    warningRange: data.warn_low
+      ? new DRange(data.warn_low, data.warn_high)
+      : undefined,
+    units: data.units,
+    precision: data.precision,
+    form: undefined,
+    choices: data.labels ? data.labels : undefined
+  });
+
+  const datetime = new Date(0);
+  datetime.setSeconds(data.seconds);
+  const dtime = new DTime(datetime);
+
   return new DType(
     {
-      stringValue: value?.string,
-      doubleValue: value?.float,
+      stringValue: data.value?.toString(),
+      doubleValue: data.value,
       arrayValue: array
     },
     alarm,
@@ -193,90 +97,13 @@ function coniqlToDType(
   );
 }
 
-const PV_SUBSCRIPTION = gql`
-  subscription sub1($pvName: ID!) {
-    subscribeChannel(id: $pvName) {
-      id
-      time {
-        datetime
-      }
-      value {
-        string
-        float
-        base64Array {
-          numberType
-          base64
-        }
-      }
-      status {
-        quality
-        message
-        mutable
-      }
-      display {
-        units
-        form
-        controlRange {
-          max
-          min
-        }
-        choices
-        precision
-      }
-    }
-  }
-`;
-
-const PV_MUTATION = gql`
-  mutation put1($pvName: ID!, $value: String!) {
-    putChannels(ids: [$pvName], values: [$value]) {
-      id
-    }
-  }
-`;
-
-export const DEVICE_QUERY = gql`
-  query deviceQuery($device: ID!) {
-    getDevice(id: $device) {
-      id
-      children(flatten: true) {
-        name
-        label
-        child {
-          __typename
-          ... on Channel {
-            id
-            display {
-              description
-              widget
-            }
-          }
-          ... on Device {
-            id
-          }
-          ... on Group {
-            layout
-            children {
-              name
-            }
-          }
-        }
-      }
-    }
-  }
-`;
-
 export class ConiqlPlugin implements Connection {
   private wsProtocol = "ws";
-  private httpProtocol = "http";
-  private client: ApolloClient<NormalizedCacheObject>;
   private onConnectionUpdate: ConnectionChangedCallback;
   private onValueUpdate: ValueChangedCallback;
-  private deviceQueried: DeviceQueriedCallback;
   private connected: boolean;
-  private wsClient: Client;
   private disconnected: string[] = [];
-  private subscriptions: { [pvName: string]: ObservableSubscription };
+  private subscriptions: { [pvName: string]: boolean };
   // Variables to measure performance metrics
   private timestamp = Date.now();
   private startTime = Date.now();
@@ -288,99 +115,95 @@ export class ConiqlPlugin implements Connection {
   private numUpdatesAny = 0;
   private finalSubscription = "";
   private firstSubscription = "";
+  private url = "";
+  private socket!: WebSocket;
+  private reconnect_ms = 5000;
 
   public constructor(socket: string, ssl: boolean) {
     if (ssl) {
       this.wsProtocol = "wss";
-      this.httpProtocol = "https";
     }
-    const cache = new InMemoryCache({
-      possibleTypes: {
-        name: [
-          "FunctionMeta",
-          "ObjectMeta",
-          "EnumMeta",
-          "NumberMeta",
-          "TableMeta"
-        ]
-      }
-    });
-    this.wsClient = createClient({
-      url: `${this.wsProtocol}://${socket}/ws`,
-      retryAttempts: Infinity,
-      shouldRetry: () => true,
-      on: {
-        closed: () => {
-          if (this.connected) {
-            for (const pvName of Object.keys(this.subscriptions)) {
-              // Websocket closed so set connection status to disconnected and
-              // readonly
-              this.onConnectionUpdate(pvName, {
-                isConnected: false,
-                isReadonly: true
-              });
-            }
-          }
-          this.connected = false;
-        },
-        connected: () => {
-          this.connected = true;
-        }
-      }
-    });
-    const link = this.createLink(socket);
-    this.client = new ApolloClient({ link, cache });
+    this.url = `${this.wsProtocol}://${socket}/pvws/pv`;
+    this.open(false);
     this.onConnectionUpdate = nullConnCallback;
     this.onValueUpdate = nullValueCallback;
-    this.deviceQueried = nullDeviceCallback;
     this.connected = false;
     this.subscriptions = {};
   }
 
-  private createLink(socket: string): ApolloLink {
-    const wsLink = new GraphQLWsLink(this.wsClient);
-    const errorLink = onError(({ graphQLErrors, networkError }) => {
-      if (graphQLErrors) {
-        log.error("GraphQL errors:");
-        graphQLErrors.forEach((error): void => {
-          log.error(error);
+  /** Open the web socket, i.e. start PV communication */
+  private open(reconnection: boolean) {
+    this.socket = new WebSocket(this.url);
+    this.socket.onopen = event => this.handleConnection();
+    this.socket.onmessage = event => this.handleMessage(event.data);
+    this.socket.onclose = event => this.handleClose(event);
+    this.socket.onerror = event => this.handleError(event);
+
+    if (reconnection) {
+      this.connected = true;
+    }
+  }
+
+  private handleConnection() {
+    console.log("Connected to " + this.url);
+    while (this.disconnected.length) {
+      const pvName = this.disconnected.pop();
+      if (pvName !== undefined) {
+        this.subscribe(pvName);
+        this.subscriptions[pvName] = true;
+      }
+    }
+  }
+
+  private handleMessage(message: string) {
+    const jm = JSON.parse(message);
+    if (jm.type === "update") {
+      if (jm.readonly !== undefined) {
+        this.onConnectionUpdate(jm.pv, {
+          isConnected: true,
+          isReadonly: jm.readonly
         });
       }
-      if (networkError) {
-        log.error("Network error:");
-        log.error(networkError);
-      }
-    });
-    const httpLink = new HttpLink({
-      uri: `${this.httpProtocol}://${socket}/graphql`
-    });
-    const retryLink = new RetryLink({
-      delay: {
-        initial: 300,
-        max: 60000,
-        jitter: true
-      },
-      attempts: (count, operation, e) => {
-        if (e && e.response && e.response.status === 401) {
-          return false;
-        }
-        return count < 30;
-      }
-    });
-    const link: ApolloLink = ApolloLink.split(
-      ({ query }): boolean => {
-        // https://github.com/apollographql/apollo-client/issues/3090
-        const definition = getMainDefinition(query);
-        return (
-          definition.kind === "OperationDefinition" &&
-          definition.operation === "subscription"
-        );
-      },
-      from([retryLink as any, errorLink, wsLink]),
-      from([retryLink as any, errorLink, httpLink])
+      const dtype = coniqlToDType(jm);
+      this.onValueUpdate(jm.pv, dtype);
+    }
+  }
+
+  private handleError(event: Event) {
+    console.error("Error from " + this.url);
+    console.error(event);
+    this.close();
+  }
+
+  private handleClose(event: CloseEvent) {
+    let message = "Web socket closed (" + event.code;
+    if (event.reason) {
+      message += ", " + event.reason;
+    }
+    message += ")";
+    console.debug(message);
+    console.debug(
+      "Scheduling re-connect to " + this.url + " in " + this.reconnect_ms + "ms"
     );
 
-    return link;
+    if (this.connected) {
+      for (const pvName of Object.keys(this.subscriptions)) {
+        // Websocket closed so set connection status to disconnected and
+        // readonly
+        this.onConnectionUpdate(pvName, {
+          isConnected: false,
+          isReadonly: true
+        });
+        this.unsubscribe(pvName);
+        this.disconnected.push(pvName);
+      }
+    }
+    this.connected = false;
+    setTimeout(() => this.open(true), this.reconnect_ms);
+  }
+
+  private close() {
+    this.socket.close();
   }
 
   public connect(
@@ -390,7 +213,6 @@ export class ConiqlPlugin implements Connection {
   ): void {
     this.onConnectionUpdate = connectionCallback;
     this.onValueUpdate = valueCallback;
-    this.deviceQueried = deviceQueried;
     this.connected = true;
   }
 
@@ -398,132 +220,41 @@ export class ConiqlPlugin implements Connection {
     return this.connected;
   }
 
-  private _process(data: any, pvName: string, operation: string): void {
-    // Process an update to a channel either from getChannel or subscribeChannel.
-    const { value, time, status, display } = data.data[operation];
-    if (status) {
-      this.onConnectionUpdate(pvName, {
-        isConnected: true,
-        isReadonly: !status.mutable
-      });
-    }
-    const dtype = coniqlToDType(value, time, status, display);
-    this.onValueUpdate(pvName, dtype);
-  }
-
-  private _processDevice(data: any, device: string): void {
-    this.deviceQueried(
-      device,
-      new DType({ stringValue: JSON.stringify(data.data) })
-    );
-  }
-
-  private _subscribe(pvName: string): ObservableSubscription {
-    return this.client
-      .subscribe({
-        query: PV_SUBSCRIPTION,
-        variables: { pvName: pvName }
-      })
-      .subscribe({
-        next: (data): void => {
-          if (PERFORMANCE_DEBUG) {
-            this.numUpdatesAny++;
-            const intervalAny = Date.now() - this.timestampAny;
-            this.totalTimeAny = this.totalTimeAny + intervalAny;
-            if (pvName === this.firstSubscription) {
-              this.numUpdates++;
-              const interval = Date.now() - this.timestamp;
-              this.totalTime = this.totalTime + interval;
-              if (this.numUpdates % 10 === 0) {
-                // eslint-disable-next-line no-console
-                console.debug(
-                  "Update Rates | 1 PV: " +
-                    (this.totalTime / this.numUpdates).toFixed(0) +
-                    " ms | Any: " +
-                    (this.totalTimeAny / this.numUpdatesAny).toFixed(2) +
-                    " ms"
-                );
-                // Now reset
-                this.totalTime = 0;
-                this.numUpdates = 0;
-                this.totalTimeAny = 0;
-                this.numUpdatesAny = 0;
-              }
-              this.timestamp = Date.now();
-            }
-            this.timestampAny = Date.now();
-            if (
-              pvName === this.finalSubscription &&
-              !this.subscriptionsStarted
-            ) {
-              // eslint-disable-next-line no-console
-              console.debug(
-                "Final PV (" +
-                  this.finalSubscription +
-                  ") updated after " +
-                  (Date.now() - this.startTime) +
-                  " ms"
-              );
-              this.subscriptionsStarted = true;
-            }
-          }
-          this._process(data, pvName, "subscribeChannel");
-        },
-        error: (err): void => {
-          log.error("err", err);
-        },
-        complete: (): void => {
-          // complete is called when the websocket is disconnected.
-          this.onConnectionUpdate(pvName, {
-            isConnected: false,
-            isReadonly: true
-          });
-          this.disconnected.push(pvName);
-        }
-      });
+  private _subscribe(pvName: string) {
+    this.socket.send(JSON.stringify({ type: "subscribe", pvs: [pvName] }));
   }
 
   public subscribe(pvName: string, type?: SubscriptionType): string {
     // TODO: How to handle multiple subscriptions of different types to the same channel?
     if (this.subscriptions[pvName] === undefined) {
-      this.subscriptions[pvName] = this._subscribe(pvName);
-      if (PERFORMANCE_DEBUG) {
-        if (!this.firstSubscription) {
-          this.firstSubscription = pvName;
-        }
-        this.finalSubscription = pvName;
-      }
+      this._subscribe(pvName);
+      this.subscriptions[pvName] = true;
     }
     return pvName;
   }
 
   public getDevice(device: string): void {
-    this.client
-      .query({
-        query: DEVICE_QUERY,
-        // Note: This currently splits the prefix, as currently devices are not
-        // accessible on ca or pva
-        variables: { device: device.split("://")[1] }
-      })
-      .then(response => this._processDevice(response, device))
-      .catch(error => {
-        log.error(`Failed to query device ${device}`);
-        log.error(error);
-      });
+    //console.log("Not implemented");
   }
 
   public putPv(pvName: string, value: DType): void {
-    log.debug(`Putting ${value} to ${pvName}.`);
-    const variables = {
-      pvName: pvName,
-      value: DType.coerceString(value)
-    };
-    this.client
-      .mutate({ mutation: PV_MUTATION, variables: variables })
-      .catch(error => {
-        log.error(`Failed to write ${value} to ${pvName}`);
-        log.error(error);
-      });
+    if (value.value.stringValue === undefined) {
+      this.socket.send(
+        JSON.stringify({
+          type: "write",
+          pv: pvName,
+          value: value.value.doubleValue
+        })
+      );
+    } else {
+      this.socket.send(
+        JSON.stringify({
+          type: "write",
+          pv: pvName,
+          value: value.value.stringValue
+        })
+      );
+    }
   }
 
   public unsubscribe(pvName: string): void {
@@ -531,7 +262,7 @@ export class ConiqlPlugin implements Connection {
     // for the same PV at present, so if this method is called then
     // there is no further need for this PV.
     if (this.subscriptions[pvName]) {
-      this.subscriptions[pvName].unsubscribe();
+      this.socket.send(JSON.stringify({ type: "clear", pvs: [pvName] }));
       delete this.subscriptions[pvName];
     }
   }
