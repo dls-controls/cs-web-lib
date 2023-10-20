@@ -1,6 +1,7 @@
 /* Module that handles a GraphQL connection to the Coniql server.
    See https://github.com/dls-controls/coniql
  */
+import base64js from "base64-js";
 import {
   Connection,
   ConnectionChangedCallback,
@@ -40,6 +41,18 @@ type CONIQL_TYPE =
   | "FLOAT32"
   | "FLOAT64";
 
+const ARRAY_TYPES = {
+  INT8: Int8Array,
+  UINT8: Uint8Array,
+  INT16: Int16Array,
+  UINT16: Uint16Array,
+  INT32: Int32Array,
+  UINT32: Uint32Array,
+  INT64: BigInt64Array,
+  UINT64: BigUint64Array,
+  FLOAT32: Float32Array,
+  FLOAT64: Float64Array
+};
 export interface ConiqlBase64Array {
   numberType: CONIQL_TYPE;
   base64: string;
@@ -52,7 +65,6 @@ export interface ConiqlTime {
 function coniqlToDType(data: any): DType {
   let alarm = undefined;
   let ddisplay = undefined;
-  const array = undefined;
   if (data.severity !== undefined) {
     if (data.severity === "MAJOR") {
       alarm = new DAlarm(AlarmQuality.ALARM, "");
@@ -77,7 +89,18 @@ function coniqlToDType(data: any): DType {
     form: undefined,
     choices: data.labels ? data.labels : undefined
   });
-
+  let array = undefined;
+  if (data.b64int !== undefined) {
+    const bd = base64js.toByteArray(data.b64int);
+    array = new ARRAY_TYPES["INT8"](
+      bd.buffer
+    );
+  } else if (data.b64dbl !== undefined) {
+    const bd = base64js.toByteArray(data.b64dbl);
+    array = new ARRAY_TYPES["FLOAT64"](
+      bd.buffer
+    );
+  }
   const datetime = new Date(0);
   datetime.setSeconds(data.seconds);
   const dtime = new DTime(datetime);
