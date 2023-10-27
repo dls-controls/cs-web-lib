@@ -17,12 +17,13 @@ const THROTTLE_PERIOD = parseFloat(
 const simulator = new SimulatorPlugin();
 const plugins: [string, Connection][] = [
   ["sim://", simulator],
-  ["loc://", simulator]
 ];
 if (CONIQL_SOCKET !== undefined) {
   const coniql = new ConiqlPlugin(CONIQL_SOCKET, CONIQL_SSL);
   plugins.unshift(["pva://", coniql]);
   plugins.unshift(["ca://", coniql]);
+  plugins.unshift(["loc://", coniql]);
+  plugins.unshift(["sim://", coniql]);
   plugins.unshift(["ssim://", coniql]);
   plugins.unshift(["dev://", coniql]);
 }
