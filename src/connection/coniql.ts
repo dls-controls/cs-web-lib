@@ -21,7 +21,7 @@ import {
   DRange
 } from "../types/dtypes";
 
-//const PERFORMANCE_DEBUG = process.env.REACT_APP_PERFORMANCE_DEBUG === "true";
+const PERFORMANCE_DEBUG = process.env.REACT_APP_PERFORMANCE_DEBUG === "true";
 
 export interface ConiqlStatus {
   quality: "ALARM" | "WARNING" | "VALID" | "INVALID" | "UNDEFINED" | "CHANGING";
@@ -189,6 +189,23 @@ export class ConiqlPlugin implements Connection {
       }
       const dtype = coniqlToDType(jm);
       this.onValueUpdate(jm.pv, dtype);
+
+      if (PERFORMANCE_DEBUG) {
+        if (
+          jm.pv === this.finalSubscription &&
+          !this.subscriptionsStarted
+        ) {
+          // eslint-disable-next-line no-console
+          console.debug(
+            "Final PV (" +
+              this.finalSubscription +
+              ") updated after " +
+              (Date.now() - this.startTime) +
+              " ms"
+          );
+          this.subscriptionsStarted = true;
+        }
+      }
     }
   }
 
@@ -250,6 +267,13 @@ export class ConiqlPlugin implements Connection {
   public subscribe(pvName: string, type?: SubscriptionType): string {
     // TODO: How to handle multiple subscriptions of different types to the same channel?
     if (this.subscriptions[pvName] === undefined) {
+      if (PERFORMANCE_DEBUG) {
+        if (!this.firstSubscription) {
+          this.firstSubscription = pvName;
+        }
+        this.finalSubscription = pvName;
+      }
+      
       this._subscribe(pvName);
       this.subscriptions[pvName] = true;
     }
