@@ -105,9 +105,16 @@ function coniqlToDType(data: any): DType {
   datetime.setSeconds(data.seconds);
   const dtime = new DTime(datetime);
 
+  let stringVal = "";
+  if (data.text !== undefined) {
+    stringVal = data.text;
+  }
+  else if (data.value !== undefined) {
+    stringVal = data.value.toString();
+  }
   return new DType(
     {
-      stringValue: data.value?.toString(),
+      stringValue: stringVal,
       doubleValue: data.value,
       arrayValue: array
     },
