@@ -89,23 +89,29 @@ function coniqlToDType(data: any): DType {
     form: undefined,
     choices: data.labels ? data.labels : undefined
   });
+
   let array = undefined;
   if (data.b64int !== undefined) {
     const bd = base64js.toByteArray(data.b64int);
-    array = new ARRAY_TYPES["INT8"](
+    array = new ARRAY_TYPES["INT32"](
       bd.buffer
     );
+    // Convert to plain array, if necessary
+    array = Array.prototype.slice.call(array);
   } else if (data.b64dbl !== undefined) {
     const bd = base64js.toByteArray(data.b64dbl);
     array = new ARRAY_TYPES["FLOAT64"](
       bd.buffer
     );
+    // Convert to plain array, if necessary
+    array = Array.prototype.slice.call(array);
   }
   const datetime = new Date(0);
   datetime.setSeconds(data.seconds);
   const dtime = new DTime(datetime);
 
   let stringVal = "";
+  
   if (data.text !== undefined) {
     stringVal = data.text;
   }
