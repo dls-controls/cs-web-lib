@@ -19,10 +19,10 @@ describe("<BoolButton />", (): void => {
     const button = getByRole("button") as HTMLButtonElement;
 
     expect(button.textContent).toEqual("ON");
-    expect(button.style.height).toEqual("50px");
+    expect(button.style.height).toEqual("30px");
     expect(button.style.width).toEqual("100px");
     expect(button.style.backgroundColor).toEqual("rgb(200, 200, 200)");
-    expect(button.style.borderRadius).toEqual("50%");
+    expect(button.style.borderRadius).toEqual("");
   });
 
   test("it renders a button with led and overwrites default values", (): void => {
@@ -52,7 +52,7 @@ describe("<BoolButton />", (): void => {
     expect(button.style.backgroundColor).toEqual("rgb(20, 20, 200)");
     expect(span.style.backgroundColor).toEqual("rgb(0, 235, 10)");
     expect(span.style.height).toEqual("8.125px");
-    expect(span.style.left).toEqual("31.9375px");
+    expect(span.style.left).toEqual("12.375px");
     expect(span.style.boxShadow).toEqual(
       "inset 2.03125px 2.03125px 3.25px rgba(255,255,255,.5)"
     );
